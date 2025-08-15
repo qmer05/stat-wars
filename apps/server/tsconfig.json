@@ -4,6 +4,7 @@
     "lib": ["ES2022", "WebWorker"],
     "types": ["@cloudflare/workers-types"],
     "strict": true,
+    "skipLibCheck": true,
     "noEmit": true
   },
   "include": ["src"]

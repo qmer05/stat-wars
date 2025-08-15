@@ -1,8 +1,17 @@
 import type {
+  DurableObjectNamespace,
+  DurableObjectState,
+  WebSocket,
+  Request as CfRequest,
+} from "@cloudflare/workers-types";
+
+import type {
   ClientToServer,
   ServerToClient,
   RoomView,
   RoundEvent,
+  Card,
+  StatName,
 } from "@stat-wars/shared";
 
 export interface Env {
@@ -10,7 +19,7 @@ export interface Env {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: CfRequest, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/ping") {
@@ -21,7 +30,7 @@ export default {
       const roomCode = url.pathname.split("/").pop()!;
       const id = env.ROOM.idFromName(roomCode);
       const stub = env.ROOM.get(id);
-      return stub.fetch(request);
+      return stub.fetch(request) as unknown as Response;
     }
 
     return new Response("Not found", { status: 404 });
@@ -37,46 +46,67 @@ type InternalState = {
   turn: Seat | null;
   phase: RoomView["phase"];
   log: RoundEvent[];
+  deckP1: Card[];
+  deckP2: Card[];
+  lastRound?: {
+    stat: StatName;
+    p1Card?: Card;
+    p2Card?: Card;
+    winner: "P1" | "P2" | "tie";
+  } | undefined;
 };
 
-export class GameRoom {
-  private state: DurableObjectState;
-  private env: Env;
+const CARD_POOL: Card[] = [
+  { id: "lion", animal: "Lion", stats: { speed: 80, strength: 95, size: 85, intelligence: 70 } },
+  { id: "cheetah", animal: "Cheetah", stats: { speed: 120, strength: 60, size: 70, intelligence: 60 } },
+  { id: "elephant", animal: "Elephant", stats: { speed: 40, strength: 99, size: 100, intelligence: 65 } },
+  { id: "wolf", animal: "Wolf", stats: { speed: 75, strength: 70, size: 60, intelligence: 75 } },
+  { id: "dolphin", animal: "Dolphin", stats: { speed: 55, strength: 50, size: 55, intelligence: 95 } },
+  { id: "gorilla", animal: "Gorilla", stats: { speed: 45, strength: 92, size: 80, intelligence: 80 } },
+  { id: "rhino", animal: "Rhino", stats: { speed: 50, strength: 97, size: 95, intelligence: 50 } },
+  { id: "eagle", animal: "Eagle", stats: { speed: 160, strength: 40, size: 30, intelligence: 55 } },
+];
 
-  // Map each connected socket to a seat
+function shuffle<T>(arr: T[]): T[] {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j]!, a[i]!];
+  }
+  return a;
+}
+
+export class GameRoom {
   private sessions = new Map<WebSocket, Seat>();
-  // Also keep last socket per seat (for reconnect handling later)
   private seatSockets: Partial<Record<Seat, WebSocket | undefined>> = {};
   private room: InternalState = {
     players: {},
     turn: null,
     phase: "WAITING",
     log: [],
+    deckP1: [],
+    deckP2: [],
   };
 
-  constructor(state: DurableObjectState, env: Env) {
-    this.state = state;
-    this.env = env;
-  }
+  constructor(private state: DurableObjectState, private env: Env) {}
 
-  async fetch(request: Request): Promise<Response> {
+  async fetch(request: CfRequest): Promise<Response> {
     const upgrade = request.headers.get("Upgrade");
     if (upgrade !== "websocket") {
       return new Response("Expected WebSocket", { status: 426 });
     }
 
     const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
-
+    const [client, server] = Object.values(pair) as unknown as [WebSocket, WebSocket];
     this.handleSession(server);
 
-    return new Response(null, { status: 101, webSocket: client });
+    return new Response(null, { status: 101, webSocket: client as unknown as any });
   }
 
   private handleSession(ws: WebSocket) {
     ws.accept();
 
-    ws.addEventListener("message", (evt: MessageEvent) => {
+    ws.addEventListener("message", (evt) => {
       const msg = this.safeParse(evt.data);
       if (!msg) {
         this.send(ws, { type: "error", code: "BAD_JSON", message: "Invalid JSON" });
@@ -86,20 +116,14 @@ export class GameRoom {
     });
 
     ws.addEventListener("close", () => {
-      this.sessions.delete(ws);
-      // If this socket was the primary for a seat, keep room state but drop this reference
-      for (const [seat, sock] of Object.entries(this.seatSockets) as [Seat, WebSocket][]) {
-        if (sock === ws) this.seatSockets[seat] = undefined;
-      }
-      // We don't auto-change phase on disconnect yet; add later if desired
+      this.dropSeat(ws);
     });
 
     ws.addEventListener("error", () => {
       try { ws.close(); } catch {}
-      this.sessions.delete(ws);
+      this.dropSeat(ws);
     });
 
-    // Greet
     this.send(ws, { type: "state", view: this.publicViewFor(ws), log: this.room.log });
   }
 
@@ -112,75 +136,98 @@ export class GameRoom {
           return;
         }
         this.room.log.push({ type: "join", seat, name: msg.name });
-        // If 2 players, phase -> READY
         if (this.room.players.P1 && this.room.players.P2 && this.room.phase === "WAITING") {
           this.room.phase = "READY";
         }
         this.broadcastState();
         return;
       }
-
       case "start": {
         if (!(this.room.players.P1 && this.room.players.P2)) {
           this.send(ws, { type: "error", code: "NOT_READY", message: "Need two players to start" });
           return;
         }
-        // Start the match — no decks yet; just turn logic scaffold
+        this.room.deckP1 = shuffle(CARD_POOL);
+        this.room.deckP2 = shuffle(CARD_POOL);
+        this.room.lastRound = undefined;
         this.room.phase = "CHOOSE";
-        this.room.turn = "P1"; // you can randomize later
+        this.room.turn = "P1";
         this.broadcastState();
         return;
       }
-
       case "chooseStat": {
-        // We'll implement round resolution when we add decks.
-        this.send(ws, { type: "error", code: "NOT_IMPLEMENTED", message: "Rounds not implemented yet" });
+        const seat = this.sessions.get(ws);
+        if (!seat || this.room.turn !== seat || this.room.phase !== "CHOOSE") {
+          this.send(ws, { type: "error", code: "OUT_OF_TURN", message: "Not your turn" });
+          return;
+        }
+        if (this.room.deckP1.length === 0 || this.room.deckP2.length === 0) {
+          this.finishIfOver();
+          return;
+        }
+        const p1Card = this.room.deckP1.shift()!;
+        const p2Card = this.room.deckP2.shift()!;
+        const s = msg.stat;
+        const a = p1Card.stats[s];
+        const b = p2Card.stats[s];
+
+        let winner: "P1" | "P2" | "tie" = "tie";
+        if (a > b) winner = "P1";
+        else if (b > a) winner = "P2";
+
+        if (winner === "P1") {
+          this.room.deckP1.push(p1Card, p2Card);
+          this.room.turn = "P1";
+        } else if (winner === "P2") {
+          this.room.deckP2.push(p1Card, p2Card);
+          this.room.turn = "P2";
+        } else {
+          this.room.deckP1.push(p1Card);
+          this.room.deckP2.push(p2Card);
+          this.room.turn = seat === "P1" ? "P2" : "P1";
+        }
+
+        this.room.lastRound = { stat: s, p1Card, p2Card, winner };
+        this.room.log.push({ type: "round", stat: s, winner });
+        this.finishIfOver();
+        this.room.phase = "CHOOSE";
+        this.broadcastState();
         return;
       }
-
-      case "requestRematch": {
-        // Later: reset state and decks
-        this.send(ws, { type: "error", code: "NOT_IMPLEMENTED", message: "Rematch not implemented yet" });
-        return;
-      }
-
       case "leave": {
         this.dropSeat(ws);
         this.broadcastState();
         return;
       }
-
       default: {
         this.send(ws, { type: "error", code: "UNKNOWN", message: "Unknown message type" });
-        return;
       }
     }
   }
 
-  private assignSeat(ws: WebSocket, name: string): Seat | null {
-    // If already seated, update the socket reference
-    const existingSeat = this.sessions.get(ws);
-    if (existingSeat) {
-      this.seatSockets[existingSeat] = ws;
-      this.room.players[existingSeat] = name || this.room.players[existingSeat] || `Player ${existingSeat === "P1" ? "1" : "2"}`;
-      return existingSeat;
+  private finishIfOver() {
+    if (this.room.deckP1.length === 0 || this.room.deckP2.length === 0) {
+      this.room.phase = "GAME_OVER";
+      const winner = this.room.deckP1.length > this.room.deckP2.length ? "P1" : "P2";
+      const payload: ServerToClient = {
+        type: "gameOver",
+        winner,
+        summary: { rounds: this.room.log.filter((e) => e.type === "round").length, durationSec: 0 },
+      };
+      for (const ws of this.sessions.keys()) this.send(ws, payload);
     }
+  }
 
-    let seat: Seat | null = null;
-    if (!this.room.players.P1) seat = "P1";
-    else if (!this.room.players.P2) seat = "P2";
-    else return null;
+  private assignSeat(ws: WebSocket, name: string): Seat | null {
+    if (!this.room.players.P1) return this.claimSeat(ws, "P1", name);
+    if (!this.room.players.P2) return this.claimSeat(ws, "P2", name);
+    return null;
+  }
 
+  private claimSeat(ws: WebSocket, seat: Seat, name: string): Seat {
     this.sessions.set(ws, seat);
     this.seatSockets[seat] = ws;
     this.room.players[seat] = name || `Player ${seat === "P1" ? "1" : "2"}`;
-
-    // If only 1 player, phase must be WAITING
-    if (!this.room.players.P2 || !this.room.players.P1) {
-      this.room.phase = "WAITING";
-      this.room.turn = null;
-    }
-
     return seat;
   }
 
@@ -190,8 +237,6 @@ export class GameRoom {
     this.sessions.delete(ws);
     this.seatSockets[seat] = undefined;
     delete this.room.players[seat];
-
-    // If one leaves mid-game, we could set GAME_OVER or WAITING
     if (this.room.phase !== "GAME_OVER") {
       this.room.phase = Object.keys(this.room.players).length === 2 ? "READY" : "WAITING";
       this.room.turn = null;
@@ -199,44 +244,33 @@ export class GameRoom {
   }
 
   private broadcastState() {
-    const payload: ServerToClient = {
-      type: "state",
-      view: this.publicView(), // same for now; later per-socket view
-      log: this.room.log,
-    };
     for (const ws of this.sessions.keys()) {
-      this.send(ws, payload);
+      this.send(ws, { type: "state", view: this.publicViewFor(ws), log: this.room.log });
     }
   }
 
-  private publicView(): RoomView {
+  private publicViewFor(ws: WebSocket): RoomView {
+    const seat = this.sessions.get(ws) ?? "P1";
+    const yourDeck = seat === "P1" ? this.room.deckP1 : this.room.deckP2;
+    const oppDeck = seat === "P1" ? this.room.deckP2 : this.room.deckP1;
     return {
-      you: "P1", // placeholder; per-socket view added below
+      you: seat,
       players: this.room.players,
       turn: this.room.turn,
-      yourDeckCount: 0,
-      oppDeckCount: 0,
-      topCards: {},
+      yourDeckCount: yourDeck.length,
+      oppDeckCount: oppDeck.length,
+      topCards: {
+        ...(yourDeck.length && yourDeck[0] ? { you: { revealed: true, card: { animal: yourDeck[0]!.animal } } } : {}),
+        ...(oppDeck.length ? { opponent: { revealed: false } } : {}),
+      },
       phase: this.room.phase,
-    };
-  }
-
-  private publicViewFor(ws: WebSocket): RoomView {
-    // When we add hidden info, we’ll tailor by seat.
-    // For now it’s the same view; set "you" based on mapping:
-    const seat = this.sessions.get(ws) ?? null;
-    return {
-      ...this.publicView(),
-      you: (seat as RoomView["you"]) ?? "P1",
     };
   }
 
   private send(ws: WebSocket, msg: ServerToClient) {
     try {
       ws.send(JSON.stringify(msg));
-    } catch {
-      // ignore
-    }
+    } catch {}
   }
 
   private safeParse(data: unknown): ClientToServer | null {
@@ -244,9 +278,7 @@ export class GameRoom {
     try {
       const obj = JSON.parse(data);
       if (obj && typeof obj.type === "string") return obj as ClientToServer;
-    } catch {
-      // ignore
-    }
+    } catch {}
     return null;
   }
 }
