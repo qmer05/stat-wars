@@ -1,3 +1,5 @@
+import type { RoomView } from "@stat-wars/shared";
+
 export default function App() {
   return (
     <main style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
