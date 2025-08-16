@@ -174,6 +174,7 @@ export default function App() {
           {(view.phase === "CHOOSE" || view.phase === "REVEAL") && (
             <section className="game-area">
               {/* Your card */}
+
               <article className="card-box you">
                 <h3 className="card-title">
                   Your Card
@@ -181,6 +182,14 @@ export default function App() {
                     {view.topCards.you?.card?.animal ?? "—"}
                   </span>
                 </h3>
+                {view.topCards.you?.card?.id && (
+                  <img
+                    src={`/animals/${view.topCards.you.card.id}.png`}
+                    alt={view.topCards.you.card.animal}
+                    className="animal-img"
+                    style={{ width: "120px", height: "auto", marginBottom: "1rem" }}
+                  />
+                )}
 
                 <ul className="stats">
                   {view.topCards.you?.card &&
@@ -222,6 +231,7 @@ export default function App() {
               </article>
 
               {/* Opponent card */}
+
               <article className="card-box opponent">
                 <h3 className="card-title">
                   Opponent Card
@@ -229,6 +239,14 @@ export default function App() {
                     {view.topCards.opponent?.card?.animal ?? "—"}
                   </span>
                 </h3>
+                {view.topCards.opponent?.card?.id && (
+                  <img
+                    src={`/animals/${view.topCards.opponent.card.id}.png`}
+                    alt={view.topCards.opponent.card.animal}
+                    className="animal-img"
+                    style={{ width: "120px", height: "auto", marginBottom: "1rem" }}
+                  />
+                )}
 
                 <ul className="stats">
                   {view.topCards.opponent?.card &&

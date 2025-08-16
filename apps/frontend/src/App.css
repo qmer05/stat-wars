@@ -263,3 +263,11 @@
   .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .game-area { flex-direction: column; }
 }
+
+.animal-img {
+  display: block;
+  margin: 0 auto 1rem auto;
+  border-radius: 12px;
+  background: #f5f7ff;
+  box-shadow: 0 2px 8px rgba(76,111,255,0.08);
+}
