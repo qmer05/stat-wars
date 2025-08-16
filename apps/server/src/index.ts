@@ -1,3 +1,5 @@
+import { RoomPhase } from "@stat-wars/shared";
+
 // apps/server/src/index.ts
 import type {
   DurableObjectNamespace,
@@ -17,7 +19,7 @@ import type {
 
 // (Type-only declaration so TS knows WebSocketPair exists in Workers)
 declare const WebSocketPair: {
-  new (): { 0: WebSocket; 1: WebSocket };
+  new(): { 0: WebSocket; 1: WebSocket };
 };
 
 export interface Env {
@@ -49,9 +51,10 @@ export default {
 type Seat = "P1" | "P2";
 
 type InternalState = {
+  nextStarter: Seat
   players: { P1?: string; P2?: string };
   turn: Seat | null;
-  phase: RoomView["phase"];
+  phase: RoomPhase;
   log: RoundEvent[];
   deckP1: Card[];
   deckP2: Card[];
@@ -84,9 +87,22 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 class GameRoom {
+
+  private startNewMatch() {
+    this.room.deckP1 = shuffle(CARD_POOL);
+    this.room.deckP2 = shuffle(CARD_POOL);
+    this.room.lastRound = undefined;
+    this.room.phase = "CHOOSE";
+    this.room.turn = this.room.nextStarter;
+
+    // flip the starter for the next time
+    this.room.nextStarter = this.room.nextStarter === "P1" ? "P2" : "P1";
+  }
+
   private sessions = new Map<WebSocket, Seat>();
   private seatSockets: Partial<Record<Seat, WebSocket | undefined>> = {};
   private room: InternalState = {
+    nextStarter: "P1" as Seat,
     players: {},
     turn: null,
     phase: "WAITING",
@@ -95,7 +111,7 @@ class GameRoom {
     deckP2: [],
   };
 
-  constructor(private state: DurableObjectState, private env: Env) {}
+  constructor(private state: DurableObjectState, private env: Env) { }
 
   async fetch(request: CfRequest): Promise<Response> {
     const upgrade = request.headers.get("Upgrade");
@@ -132,7 +148,7 @@ class GameRoom {
     ws.addEventListener("error", () => {
       try {
         ws.close();
-      } catch {}
+      } catch { }
       this.dropSeat(ws);
     });
 
@@ -161,11 +177,17 @@ class GameRoom {
           this.send(ws, { type: "error", code: "NOT_READY", message: "Need two players to start" });
           return;
         }
-        this.room.deckP1 = shuffle(CARD_POOL);
-        this.room.deckP2 = shuffle(CARD_POOL);
-        this.room.lastRound = undefined;
-        this.room.phase = "CHOOSE";
-        this.room.turn = "P1";
+        this.startNewMatch();
+        this.broadcastState();
+        return;
+      }
+
+      case "requestRematch": {
+        if (!(this.room.players.P1 && this.room.players.P2)) {
+          this.send(ws, { type: "error", code: "NOT_READY", message: "Need two players" });
+          return;
+        }
+        this.startNewMatch();
         this.broadcastState();
         return;
       }
@@ -205,8 +227,9 @@ class GameRoom {
 
         this.room.lastRound = { stat: s, p1Card, p2Card, winner };
         this.room.log.push({ type: "round", stat: s, winner });
-        this.finishIfOver();
-        this.room.phase = "CHOOSE";
+        if (!this.finishIfOver()) {
+          this.room.phase = "CHOOSE";
+        }
         this.broadcastState();
         return;
       }
@@ -223,7 +246,7 @@ class GameRoom {
     }
   }
 
-  private finishIfOver() {
+  private finishIfOver(): boolean {
     if (this.room.deckP1.length === 0 || this.room.deckP2.length === 0) {
       this.room.phase = "GAME_OVER";
       const winner = this.room.deckP1.length > this.room.deckP2.length ? "P1" : "P2";
@@ -233,7 +256,9 @@ class GameRoom {
         summary: { rounds: this.room.log.filter((e) => e.type === "round").length, durationSec: 0 },
       };
       for (const ws of this.sessions.keys()) this.send(ws, payload);
+      return true; // game is over
     }
+    return false; // still going
   }
 
   private assignSeat(ws: WebSocket, name: string): Seat | null {
@@ -291,7 +316,7 @@ class GameRoom {
   private send(ws: WebSocket, msg: ServerToClient) {
     try {
       ws.send(JSON.stringify(msg));
-    } catch {}
+    } catch { }
   }
 
   private safeParse(data: unknown): ClientToServer | null {
@@ -299,7 +324,7 @@ class GameRoom {
     try {
       const obj = JSON.parse(data);
       if (obj && typeof obj.type === "string") return obj as ClientToServer;
-    } catch {}
+    } catch { }
     return null;
   }
 }

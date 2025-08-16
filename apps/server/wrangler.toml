@@ -1,7 +1,8 @@
-name = "stat-wars-server"
+name = "stat-wars-api"
 main = "src/index.ts"
-compatibility_date = "2024-12-01" # or latest
+compatibility_date = "2024-11-01"
 
+# Bind the Durable Object namespace exposed in Env as ROOM
 [durable_objects]
 bindings = [
   { name = "ROOM", class_name = "GameRoom" }
@@ -10,3 +11,8 @@ bindings = [
 [[migrations]]
 tag = "v1"
 new_classes = ["GameRoom"]
+
+# Keep dev local (no route needed for dev)
+[dev]
+ip = "127.0.0.1"
+port = 8787

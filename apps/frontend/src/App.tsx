@@ -1,5 +1,4 @@
-// apps/frontend/src/App.tsx
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   STAT_NAMES,
   type RoomView,
@@ -8,57 +7,68 @@ import {
 } from "@stat-wars/shared";
 import { wsUrl } from "./config";
 
-const ROOM = "test-room"; // open two tabs with the same room to play vs yourself
+function useRoomAndName() {
+  return useMemo(() => {
+    const u = new URL(window.location.href);
+    const room = (u.searchParams.get("room") || "test-room").toLowerCase();
+    const stored = localStorage.getItem("sw_name");
+    const name =
+      u.searchParams.get("name") ||
+      stored ||
+      `Player-${Math.random().toString(36).slice(2, 6)}`;
+    localStorage.setItem("sw_name", name);
+    return { room, name };
+  }, []);
+}
 
 export default function App() {
+  const { room, name } = useRoomAndName();
   const wsRef = useRef<WebSocket | null>(null);
   const [view, setView] = useState<RoomView | null>(null);
   const [log, setLog] = useState<unknown[]>([]);
+  const [status, setStatus] = useState<"idle" | "connecting" | "open" | "closed">("idle");
 
   useEffect(() => {
-    const url = wsUrl(`/ws/${ROOM}`);
-    console.log("Connecting to:", url);
+    setStatus("connecting");
+    const url = wsUrl(`/ws/${room}`);
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
     ws.addEventListener("open", () => {
-      console.log("Connected to server");
-      send({ type: "join", name: "Player 1" });
+      setStatus("open");
+      send({ type: "join", name });
     });
 
     ws.addEventListener("message", (evt) => {
       const msg: ServerToClient = JSON.parse(evt.data);
-      console.log("Received:", msg);
-
       if (msg.type === "state") {
         setView(msg.view);
         setLog(msg.log);
-      }
-      if (msg.type === "gameOver") {
+      } else if (msg.type === "gameOver") {
         alert(`Game Over! Winner: ${msg.winner}`);
+      } else if (msg.type === "error") {
+        console.warn("Server error:", msg.code, msg.message);
       }
     });
 
-    ws.addEventListener("close", () => {
-      console.log("Disconnected from server");
-    });
+    ws.addEventListener("close", () => setStatus("closed"));
+    ws.addEventListener("error", () => setStatus("closed"));
 
-    ws.addEventListener("error", (err) => {
-      console.error("WebSocket error:", err);
-    });
-
-    return () => {
-      ws.close();
-    };
-  }, []);
+    return () => ws.close();
+  }, [room, name]);
 
   function send(msg: ClientToServer) {
-    wsRef.current?.send(JSON.stringify(msg));
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify(msg));
   }
 
   return (
-    <div style={{ padding: "1rem" }}>
+    <div style={{ padding: "1rem", maxWidth: 720, margin: "0 auto" }}>
       <h1>Stat Wars</h1>
+      <p>
+        <b>Status:</b> {status} | <b>Room:</b> {room} | <b>Name:</b> {name}
+      </p>
 
       {view ? (
         <>
@@ -69,9 +79,7 @@ export default function App() {
 
           <div style={{ marginTop: "1rem" }}>
             {view.phase === "READY" && (
-              <button onClick={() => send({ type: "start" })}>
-                Start Game
-              </button>
+              <button onClick={() => send({ type: "start" })}>Start Game</button>
             )}
 
             {view.phase === "CHOOSE" && view.turn === view.you && (
