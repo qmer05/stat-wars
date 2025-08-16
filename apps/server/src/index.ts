@@ -1,5 +1,3 @@
-import { RoomPhase } from "@stat-wars/shared";
-
 // apps/server/src/index.ts
 import type {
   DurableObjectNamespace,
@@ -19,7 +17,7 @@ import type {
 
 // (Type-only declaration so TS knows WebSocketPair exists in Workers)
 declare const WebSocketPair: {
-  new(): { 0: WebSocket; 1: WebSocket };
+  new (): { 0: WebSocket; 1: WebSocket };
 };
 
 export interface Env {
@@ -51,10 +49,9 @@ export default {
 type Seat = "P1" | "P2";
 
 type InternalState = {
-  nextStarter: Seat
   players: { P1?: string; P2?: string };
   turn: Seat | null;
-  phase: RoomPhase;
+  phase: RoomView["phase"];
   log: RoundEvent[];
   deckP1: Card[];
   deckP2: Card[];
@@ -87,22 +84,9 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 class GameRoom {
-
-  private startNewMatch() {
-    this.room.deckP1 = shuffle(CARD_POOL);
-    this.room.deckP2 = shuffle(CARD_POOL);
-    this.room.lastRound = undefined;
-    this.room.phase = "CHOOSE";
-    this.room.turn = this.room.nextStarter;
-
-    // flip the starter for the next time
-    this.room.nextStarter = this.room.nextStarter === "P1" ? "P2" : "P1";
-  }
-
   private sessions = new Map<WebSocket, Seat>();
   private seatSockets: Partial<Record<Seat, WebSocket | undefined>> = {};
   private room: InternalState = {
-    nextStarter: "P1" as Seat,
     players: {},
     turn: null,
     phase: "WAITING",
@@ -111,7 +95,7 @@ class GameRoom {
     deckP2: [],
   };
 
-  constructor(private state: DurableObjectState, private env: Env) { }
+  constructor(private state: DurableObjectState, private env: Env) {}
 
   async fetch(request: CfRequest): Promise<Response> {
     const upgrade = request.headers.get("Upgrade");
@@ -148,7 +132,7 @@ class GameRoom {
     ws.addEventListener("error", () => {
       try {
         ws.close();
-      } catch { }
+      } catch {}
       this.dropSeat(ws);
     });
 
@@ -177,17 +161,11 @@ class GameRoom {
           this.send(ws, { type: "error", code: "NOT_READY", message: "Need two players to start" });
           return;
         }
-        this.startNewMatch();
-        this.broadcastState();
-        return;
-      }
-
-      case "requestRematch": {
-        if (!(this.room.players.P1 && this.room.players.P2)) {
-          this.send(ws, { type: "error", code: "NOT_READY", message: "Need two players" });
-          return;
-        }
-        this.startNewMatch();
+        this.room.deckP1 = shuffle(CARD_POOL);
+        this.room.deckP2 = shuffle(CARD_POOL);
+        this.room.lastRound = undefined;
+        this.room.phase = "CHOOSE";
+        this.room.turn = "P1";
         this.broadcastState();
         return;
       }
@@ -227,9 +205,8 @@ class GameRoom {
 
         this.room.lastRound = { stat: s, p1Card, p2Card, winner };
         this.room.log.push({ type: "round", stat: s, winner });
-        if (!this.finishIfOver()) {
-          this.room.phase = "CHOOSE";
-        }
+        this.finishIfOver();
+        this.room.phase = "CHOOSE";
         this.broadcastState();
         return;
       }
@@ -246,7 +223,7 @@ class GameRoom {
     }
   }
 
-  private finishIfOver(): boolean {
+  private finishIfOver() {
     if (this.room.deckP1.length === 0 || this.room.deckP2.length === 0) {
       this.room.phase = "GAME_OVER";
       const winner = this.room.deckP1.length > this.room.deckP2.length ? "P1" : "P2";
@@ -256,9 +233,7 @@ class GameRoom {
         summary: { rounds: this.room.log.filter((e) => e.type === "round").length, durationSec: 0 },
       };
       for (const ws of this.sessions.keys()) this.send(ws, payload);
-      return true; // game is over
     }
-    return false; // still going
   }
 
   private assignSeat(ws: WebSocket, name: string): Seat | null {
@@ -292,10 +267,51 @@ class GameRoom {
     }
   }
 
+  // Type guard to ensure a value is a full Card
+  private isFullCard(card: any): card is Card {
+    return (
+      card &&
+      typeof card.id === "string" &&
+      typeof card.animal === "string" &&
+      typeof card.stats === "object" &&
+      card.stats !== null &&
+      ["speed", "strength", "size", "intelligence"].every((k) => typeof card.stats[k] === "number")
+    );
+  }
+
   private publicViewFor(ws: WebSocket): RoomView {
     const seat = this.sessions.get(ws) ?? ("P1" as Seat);
     const yourDeck = seat === "P1" ? this.room.deckP1 : this.room.deckP2;
     const oppDeck = seat === "P1" ? this.room.deckP2 : this.room.deckP1;
+
+    let reveal: { stat: StatName; winner: "P1" | "P2" | "tie" } | undefined = undefined;
+    let youCard: Card | undefined = this.isFullCard(yourDeck[0]) ? yourDeck[0] : undefined;
+    let oppCard: Card | undefined = undefined;
+
+    // If we are in the reveal state (after a stat is chosen, but before next round), show both cards
+    if (
+      this.room.lastRound &&
+      this.room.phase === "CHOOSE" &&
+      (this.room.deckP1.length + this.room.deckP2.length) < CARD_POOL.length * 2
+    ) {
+      reveal = {
+        stat: this.room.lastRound.stat,
+        winner: this.room.lastRound.winner,
+      };
+      if (seat === "P1") {
+        youCard = this.isFullCard(this.room.lastRound.p1Card) ? this.room.lastRound.p1Card : undefined;
+        oppCard = this.isFullCard(this.room.lastRound.p2Card) ? this.room.lastRound.p2Card : undefined;
+      } else {
+        youCard = this.isFullCard(this.room.lastRound.p2Card) ? this.room.lastRound.p2Card : undefined;
+        oppCard = this.isFullCard(this.room.lastRound.p1Card) ? this.room.lastRound.p1Card : undefined;
+      }
+    }
+
+    // Only show opponent's card if we are in the reveal state
+    const topCards: RoomView["topCards"] = {
+      ...(youCard ? { you: { revealed: true, card: youCard } } : {}),
+      ...(reveal && oppCard ? { opponent: { revealed: true, card: oppCard } } : {}),
+    };
 
     return {
       you: seat,
@@ -303,20 +319,16 @@ class GameRoom {
       turn: this.room.turn,
       yourDeckCount: yourDeck.length,
       oppDeckCount: oppDeck.length,
-      topCards: {
-        ...(yourDeck.length && yourDeck[0]
-          ? { you: { revealed: true, card: { animal: yourDeck[0]!.animal } } }
-          : {}),
-        ...(oppDeck.length ? { opponent: { revealed: false } } : {}),
-      },
+      topCards,
       phase: this.room.phase,
+      ...(reveal ? { reveal } : {}),
     };
   }
 
   private send(ws: WebSocket, msg: ServerToClient) {
     try {
       ws.send(JSON.stringify(msg));
-    } catch { }
+    } catch {}
   }
 
   private safeParse(data: unknown): ClientToServer | null {
@@ -324,7 +336,7 @@ class GameRoom {
     try {
       const obj = JSON.parse(data);
       if (obj && typeof obj.type === "string") return obj as ClientToServer;
-    } catch { }
+    } catch {}
     return null;
   }
 }

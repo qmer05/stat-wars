@@ -1,10 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   STAT_NAMES,
-  type RoomView,
   type ServerToClient,
   type ClientToServer,
 } from "@stat-wars/shared";
+
+// Redefine RoomView locally to include reveal field for type safety
+import type { StatName, Card } from "@stat-wars/shared";
+type RoomView = {
+  phase: string;
+  you: "P1" | "P2";
+  players: { P1?: string; P2?: string };
+  turn: "P1" | "P2" | null;
+  yourDeckCount: number;
+  oppDeckCount: number;
+  topCards: {
+    you?: { revealed: boolean; card?: Card };
+    opponent?: { revealed: boolean; card?: Card };
+  };
+  reveal?: { stat: StatName; winner: "P1" | "P2" | "tie" };
+};
 import { wsUrl } from "./config";
 
 function useRoomAndName() {
@@ -82,18 +97,74 @@ export default function App() {
               <button onClick={() => send({ type: "start" })}>Start Game</button>
             )}
 
-            {view.phase === "CHOOSE" && view.turn === view.you && (
-              <div>
-                <h3>Choose a Stat:</h3>
-                {STAT_NAMES.map((stat) => (
-                  <button
-                    key={stat}
-                    style={{ margin: "0.25rem" }}
-                    onClick={() => send({ type: "chooseStat", stat })}
-                  >
-                    {stat}
-                  </button>
-                ))}
+            {view.phase === "CHOOSE" && (
+              <div style={{ display: "flex", gap: 32 }}>
+                {/* Your card */}
+                <div style={{ flex: 1 }}>
+                  <h3>Your Card: {view.topCards.you?.card?.animal}</h3>
+                  <ul>
+                    {view.topCards.you?.card && "stats" in view.topCards.you.card &&
+                      Object.entries((view.topCards.you.card as { animal: string; stats: Record<string, number> }).stats).map(([stat, value]) => (
+                        <li key={stat}>
+                          {view.turn === view.you && !view?.reveal ? (
+                            <button
+                              onClick={() => send({ type: "chooseStat", stat: stat as any })}
+                              style={{ margin: "0.25rem" }}
+                            >
+                              {stat}: {String(value)}
+                            </button>
+                          ) : (
+                            <span
+                              style={
+                                view?.reveal && view.reveal.stat === stat
+                                  ? {
+                                    fontWeight: "bold",
+                                    color:
+                                      view.reveal.winner === view.you
+                                        ? "green"
+                                        : view.reveal.winner === "tie"
+                                          ? "orange"
+                                          : "red",
+                                  }
+                                  : {}
+                              }
+                            >
+                              {stat}: {String(value)}
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+
+                {/* Opponent card */}
+                <div style={{ flex: 1 }}>
+                  <h3>Opponent Card: {view.topCards.opponent?.card?.animal}</h3>
+                  <ul>
+                    {view.topCards.opponent?.card &&
+                      Object.entries(view.topCards.opponent.card.stats).map(([stat, value]) => (
+                        <li key={stat}>
+                          <span
+                            style={
+                              view.reveal && view.reveal.stat === stat
+                                ? {
+                                  fontWeight: "bold",
+                                  color:
+                                    view.reveal.winner !== view.you
+                                      ? view.reveal.winner === "tie"
+                                        ? "orange"
+                                        : "green"
+                                      : "red",
+                                }
+                                : {}
+                            }
+                          >
+                            {stat}: {String(value)}
+                          </span>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
               </div>
             )}
 

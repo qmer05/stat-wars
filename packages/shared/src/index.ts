@@ -14,9 +14,11 @@ export interface RoomView {
   yourDeckCount: number;
   oppDeckCount: number;
   topCards: {
-    you?: { revealed: boolean; card?: { animal: string } };
-    opponent?: { revealed: boolean };
+    you?: { revealed: boolean; card?: Card };
+    opponent?: { revealed: boolean; card?: Card };
   };
+  // Optionally include reveal info for the round
+  reveal?: { stat: StatName; winner: "P1" | "P2" | "tie" };
 }
 
 // Card shape
