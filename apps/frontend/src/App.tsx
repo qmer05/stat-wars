@@ -1,9 +1,18 @@
+import { wsUrl } from "./config";
+import "./App.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   STAT_NAMES,
   type ServerToClient,
   type ClientToServer,
 } from "@stat-wars/shared";
+
+const STAT_LABELS: Record<string, string> = {
+  speed: "Speed (km/h)",
+  kg: "Weight (kg)",
+  intelligence: "Intelligence (EQ)",
+  lifespan: "Lifespan (years)",
+};
 
 // Redefine RoomView locally to include reveal field for type safety
 import type { StatName, Card } from "@stat-wars/shared";
@@ -21,17 +30,12 @@ type RoomView = {
   reveal?: { stat: StatName; winner: "P1" | "P2" | "tie" };
 };
 
-import { wsUrl } from "./config";
-import "./App.css";
-
-
 function useRoom() {
   return useMemo(() => {
     const u = new URL(window.location.href);
     return (u.searchParams.get("room") || "test-room").toLowerCase();
   }, []);
 }
-
 
 export default function App() {
   const room = useRoom();
@@ -193,11 +197,7 @@ export default function App() {
 
                 <ul className="stats">
                   {view.topCards.you?.card &&
-                    "stats" in view.topCards.you.card &&
-                    Object.entries(
-                      (view.topCards.you.card as { animal: string; stats: Record<string, number> })
-                        .stats
-                    ).map(([stat, value]) => {
+                    Object.entries(view.topCards.you.card.stats).map(([stat, value]) => {
                       const isRevealed = !!view?.reveal && view.reveal.stat === stat;
                       const outcome =
                         !isRevealed
@@ -215,12 +215,12 @@ export default function App() {
                               className="stat-button"
                               onClick={() => send({ type: "chooseStat", stat: stat as any })}
                             >
-                              <span className="stat-name">{stat}</span>
+                              <span className="stat-name">{STAT_LABELS[stat] ?? stat}</span>
                               <span className="stat-value">{String(value)}</span>
                             </button>
                           ) : (
                             <div className="stat-label">
-                              <span className="stat-name">{stat}</span>
+                              <span className="stat-name">{STAT_LABELS[stat] ?? stat}</span>
                               <span className="stat-value">{String(value)}</span>
                             </div>
                           )}
@@ -264,7 +264,7 @@ export default function App() {
                       return (
                         <li key={stat} className={`stat-row ${isRevealed ? outcome : ""}`}>
                           <div className="stat-label">
-                            <span className="stat-name">{stat}</span>
+                            <span className="stat-name">{STAT_LABELS[stat] ?? stat}</span>
                             <span className="stat-value">{String(value)}</span>
                           </div>
                         </li>
