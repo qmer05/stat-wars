@@ -64,15 +64,47 @@ type InternalState = {
   readyForNext: { P1?: boolean; P2?: boolean };
 };
 
-const CARD_POOL: Card[] = [
-  { id: "lion", animal: "Lion", stats: { speed: 80, strength: 95, size: 85, intelligence: 70 } },
-  { id: "cheetah", animal: "Cheetah", stats: { speed: 120, strength: 60, size: 70, intelligence: 60 } },
-  { id: "elephant", animal: "Elephant", stats: { speed: 40, strength: 99, size: 100, intelligence: 65 } },
-  { id: "wolf", animal: "Wolf", stats: { speed: 75, strength: 70, size: 60, intelligence: 75 } },
-  { id: "dolphin", animal: "Dolphin", stats: { speed: 55, strength: 50, size: 55, intelligence: 95 } },
-  { id: "gorilla", animal: "Gorilla", stats: { speed: 45, strength: 92, size: 80, intelligence: 80 } },
-  { id: "rhino", animal: "Rhino", stats: { speed: 50, strength: 97, size: 95, intelligence: 50 } },
-  { id: "eagle", animal: "Eagle", stats: { speed: 160, strength: 40, size: 30, intelligence: 55 } },
+export const CARD_POOL: Card[] = [
+  {
+    id: "lion",
+    animal: "Lion",
+    stats: { speed: 80, kg: 190, intelligence: 1.0, lifespan: 12 },
+  },
+  {
+    id: "cheetah",
+    animal: "Cheetah",
+    stats: { speed: 120, kg: 72, intelligence: 0.5, lifespan: 10 },
+  },
+  {
+    id: "elephant",
+    animal: "Elephant",
+    stats: { speed: 40, kg: 6000, intelligence: 1.8, lifespan: 65 },
+  },
+  {
+    id: "wolf",
+    animal: "Wolf",
+    stats: { speed: 65, kg: 45, intelligence: 1.6, lifespan: 10 },
+  },
+  {
+    id: "dolphin",
+    animal: "Dolphin",
+    stats: { speed: 55, kg: 150, intelligence: 5.3, lifespan: 35 },
+  },
+  {
+    id: "gorilla",
+    animal: "Gorilla",
+    stats: { speed: 40, kg: 160, intelligence: 1.5, lifespan: 37 },
+  },
+  {
+    id: "rhino",
+    animal: "Rhino",
+    stats: { speed: 50, kg: 2300, intelligence: 0.7, lifespan: 45 },
+  },
+  {
+    id: "eagle",
+    animal: "Eagle",
+    stats: { speed: 160, kg: 6, intelligence: 0.7, lifespan: 18 },
+  },
 ];
 
 function shuffle<T>(arr: T[]): T[] {
@@ -293,7 +325,7 @@ class GameRoom {
       typeof card.animal === "string" &&
       typeof card.stats === "object" &&
       card.stats !== null &&
-      ["speed", "strength", "size", "intelligence"].every((k) => typeof card.stats[k] === "number")
+      ["speed", "kg", "intelligence", "lifespan"].every((k) => typeof card.stats[k] === "number")
     );
   }
 
