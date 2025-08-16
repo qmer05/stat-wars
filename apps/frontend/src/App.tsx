@@ -20,7 +20,9 @@ type RoomView = {
   };
   reveal?: { stat: StatName; winner: "P1" | "P2" | "tie" };
 };
+
 import { wsUrl } from "./config";
+import "./App.css";
 
 function useRoomAndName() {
   return useMemo(() => {
@@ -79,117 +81,150 @@ export default function App() {
   }
 
   return (
-    <div style={{ padding: "1rem", maxWidth: 720, margin: "0 auto" }}>
-      <h1>Stat Wars</h1>
-      <p>
-        <b>Status:</b> {status} | <b>Room:</b> {room} | <b>Name:</b> {name}
-      </p>
+    <div className="page">
+      <header className="topbar">
+        <div className="branding">
+          <div className="logo-dot" />
+          <h1 className="title">Stat Wars</h1>
+        </div>
+        <div className="meta">
+          <span className={`pill ${status}`}>Status: {status}</span>
+          <span className="pill alt">Room: {room}</span>
+          <span className="pill alt">Name: {name}</span>
+        </div>
+      </header>
 
-      {view ? (
+      {!view && <p className="muted">Connecting…</p>}
+
+      {view && (
         <>
-          <p>Phase: {view.phase}</p>
-          <p>Players: {JSON.stringify(view.players)}</p>
-          <p>Your Deck: {view.yourDeckCount} cards</p>
-          <p>Opponent Deck: {view.oppDeckCount} cards</p>
+          <section className="summary">
+            <div className="summary-item">
+              <span className="label">Phase</span>
+              <span className="value">{view.phase}</span>
+            </div>
+            <div className="summary-item">
+              <span className="label">Players</span>
+              <span className="value">
+                {view.players.P1 ?? "?"} vs {view.players.P2 ?? "?"}
+              </span>
+            </div>
+            <div className="summary-item">
+              <span className="label">Your Deck</span>
+              <span className="value">{view.yourDeckCount}</span>
+            </div>
+            <div className="summary-item">
+              <span className="label">Opponent Deck</span>
+              <span className="value">{view.oppDeckCount}</span>
+            </div>
+          </section>
 
-          <div style={{ marginTop: "1rem" }}>
+          <section className="controls">
             {view.phase === "READY" && (
-              <button onClick={() => send({ type: "start" })}>Start Game</button>
+              <button className="primary" onClick={() => send({ type: "start" })}>
+                Start Game
+              </button>
             )}
-
-            {view.phase === "CHOOSE" && (
-              <div style={{ display: "flex", gap: 32 }}>
-                {/* Your card */}
-                <div style={{ flex: 1 }}>
-                  <h3>Your Card: {view.topCards.you?.card?.animal}</h3>
-                  <ul>
-                    {view.topCards.you?.card && "stats" in view.topCards.you.card &&
-                      Object.entries((view.topCards.you.card as { animal: string; stats: Record<string, number> }).stats).map(([stat, value]) => (
-                        <li key={stat}>
-                          {view.turn === view.you && !view?.reveal ? (
-                            <button
-                              onClick={() => send({ type: "chooseStat", stat: stat as any })}
-                              style={{ margin: "0.25rem" }}
-                            >
-                              {stat}: {String(value)}
-                            </button>
-                          ) : (
-                            <span
-                              style={
-                                view?.reveal && view.reveal.stat === stat
-                                  ? {
-                                    fontWeight: "bold",
-                                    color:
-                                      view.reveal.winner === view.you
-                                        ? "green"
-                                        : view.reveal.winner === "tie"
-                                          ? "orange"
-                                          : "red",
-                                  }
-                                  : {}
-                              }
-                            >
-                              {stat}: {String(value)}
-                            </span>
-                          )}
-                        </li>
-                      ))}
-                  </ul>
-                </div>
-
-                {/* Opponent card */}
-                <div style={{ flex: 1 }}>
-                  <h3>Opponent Card: {view.topCards.opponent?.card?.animal}</h3>
-                  <ul>
-                    {view.topCards.opponent?.card &&
-                      Object.entries(view.topCards.opponent.card.stats).map(([stat, value]) => (
-                        <li key={stat}>
-                          <span
-                            style={
-                              view.reveal && view.reveal.stat === stat
-                                ? {
-                                  fontWeight: "bold",
-                                  color:
-                                    view.reveal.winner !== view.you
-                                      ? view.reveal.winner === "tie"
-                                        ? "orange"
-                                        : "green"
-                                      : "red",
-                                }
-                                : {}
-                            }
-                          >
-                            {stat}: {String(value)}
-                          </span>
-                        </li>
-                      ))}
-                  </ul>
-                </div>
-              </div>
-            )}
-
             {view.phase === "GAME_OVER" && (
-              <button onClick={() => send({ type: "requestRematch" })}>
+              <button className="primary" onClick={() => send({ type: "requestRematch" })}>
                 Rematch
               </button>
             )}
-          </div>
+          </section>
 
-          <h2 style={{ marginTop: "2rem" }}>Game Log</h2>
-          <pre
-            style={{
-              background: "#f5f5f5",
-              padding: "0.5rem",
-              borderRadius: "4px",
-              maxHeight: "200px",
-              overflow: "auto",
-            }}
-          >
-            {JSON.stringify(log, null, 2)}
-          </pre>
+          {view.phase === "CHOOSE" && (
+            <section className="game-area">
+              {/* Your card */}
+              <article className="card-box you">
+                <h3 className="card-title">
+                  Your Card
+                  <span className="animal">
+                    {view.topCards.you?.card?.animal ?? "—"}
+                  </span>
+                </h3>
+
+                <ul className="stats">
+                  {view.topCards.you?.card &&
+                    "stats" in view.topCards.you.card &&
+                    Object.entries(
+                      (view.topCards.you.card as { animal: string; stats: Record<string, number> })
+                        .stats
+                    ).map(([stat, value]) => {
+                      const isRevealed = !!view?.reveal && view.reveal.stat === stat;
+                      const outcome =
+                        !isRevealed
+                          ? ""
+                          : view.reveal!.winner === view.you
+                          ? "win"
+                          : view.reveal!.winner === "tie"
+                          ? "tie"
+                          : "lose";
+
+                      return (
+                        <li key={stat} className={`stat-row ${isRevealed ? outcome : ""}`}>
+                          {view.turn === view.you && !view?.reveal ? (
+                            <button
+                              className="stat-button"
+                              onClick={() => send({ type: "chooseStat", stat: stat as any })}
+                            >
+                              <span className="stat-name">{stat}</span>
+                              <span className="stat-value">{String(value)}</span>
+                            </button>
+                          ) : (
+                            <div className="stat-label">
+                              <span className="stat-name">{stat}</span>
+                              <span className="stat-value">{String(value)}</span>
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                </ul>
+              </article>
+
+              {/* Opponent card */}
+              <article className="card-box opponent">
+                <h3 className="card-title">
+                  Opponent Card
+                  <span className="animal">
+                    {view.topCards.opponent?.card?.animal ?? "—"}
+                  </span>
+                </h3>
+
+                <ul className="stats">
+                  {view.topCards.opponent?.card &&
+                    Object.entries(view.topCards.opponent.card.stats).map(([stat, value]) => {
+                      const isRevealed = !!view?.reveal && view.reveal.stat === stat;
+                      const outcome =
+                        !isRevealed
+                          ? ""
+                          : view.reveal!.winner !== view.you
+                          ? view.reveal!.winner === "tie"
+                            ? "tie"
+                            : "win"
+                          : "lose";
+
+                      return (
+                        <li key={stat} className={`stat-row ${isRevealed ? outcome : ""}`}>
+                          <div className="stat-label">
+                            <span className="stat-name">{stat}</span>
+                            <span className="stat-value">{String(value)}</span>
+                          </div>
+                        </li>
+                      );
+                    })}
+                </ul>
+              </article>
+            </section>
+          )}
+
+          <section className="log-section">
+            <h2 className="h2">Game Log</h2>
+            <div className="log-box">
+              {JSON.stringify(log, null, 2)}
+            </div>
+          </section>
         </>
-      ) : (
-        <p>Connecting...</p>
       )}
     </div>
   );
