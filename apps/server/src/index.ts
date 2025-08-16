@@ -163,10 +163,10 @@ class GameRoom {
           this.send(ws, { type: "error", code: "NOT_READY", message: "Need two players to start" });
           return;
         }
-        // Shuffle the full deck and split between players
-        const shuffled = shuffle(CARD_POOL);
-        this.room.deckP1 = shuffled.slice(0, Math.ceil(shuffled.length / 2));
-        this.room.deckP2 = shuffled.slice(Math.ceil(shuffled.length / 2));
+        // Shuffle a copy of the full deck and split between players
+        const shuffled = shuffle([...CARD_POOL]);
+        this.room.deckP1 = shuffled.slice(0, Math.floor(shuffled.length / 2));
+        this.room.deckP2 = shuffled.slice(Math.floor(shuffled.length / 2));
         this.room.lastRound = undefined;
         this.room.phase = "CHOOSE";
         this.room.turn = "P1";
