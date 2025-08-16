@@ -1,4 +1,5 @@
 {
+  "name": "stat-wars",
   "private": true,
   "workspaces": [
     "apps/*",
