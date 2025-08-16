@@ -61,6 +61,7 @@ type InternalState = {
     p2Card?: Card;
     winner: "P1" | "P2" | "tie";
   } | undefined;
+  readyForNext: { P1?: boolean; P2?: boolean };
 };
 
 const CARD_POOL: Card[] = [
@@ -93,6 +94,7 @@ class GameRoom {
     log: [],
     deckP1: [],
     deckP2: [],
+    readyForNext: {},
   };
 
   constructor(private state: DurableObjectState, private env: Env) {}
@@ -170,6 +172,7 @@ class GameRoom {
         return;
       }
 
+
       case "chooseStat": {
         const seat = this.sessions.get(ws);
         if (!seat || this.room.turn !== seat || this.room.phase !== "CHOOSE") {
@@ -205,8 +208,22 @@ class GameRoom {
 
         this.room.lastRound = { stat: s, p1Card, p2Card, winner };
         this.room.log.push({ type: "round", stat: s, winner });
+        this.room.phase = "REVEAL";
+        this.room.readyForNext = {};
         this.finishIfOver();
-        this.room.phase = "CHOOSE";
+        this.broadcastState();
+        return;
+      }
+
+      case "next": {
+        const seat = this.sessions.get(ws);
+        if (!seat || this.room.phase !== "REVEAL") return;
+        this.room.readyForNext[seat] = true;
+        if (this.room.readyForNext.P1 && this.room.readyForNext.P2) {
+          this.room.lastRound = undefined;
+          this.room.phase = "CHOOSE";
+          this.room.readyForNext = {};
+        }
         this.broadcastState();
         return;
       }
@@ -291,8 +308,7 @@ class GameRoom {
     // If we are in the reveal state (after a stat is chosen, but before next round), show both cards
     if (
       this.room.lastRound &&
-      this.room.phase === "CHOOSE" &&
-      (this.room.deckP1.length + this.room.deckP2.length) < CARD_POOL.length * 2
+      this.room.phase === "REVEAL"
     ) {
       reveal = {
         stat: this.room.lastRound.stat,

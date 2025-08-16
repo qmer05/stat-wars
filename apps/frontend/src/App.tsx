@@ -132,7 +132,7 @@ export default function App() {
             )}
           </section>
 
-          {view.phase === "CHOOSE" && (
+          {(view.phase === "CHOOSE" || view.phase === "REVEAL") && (
             <section className="game-area">
               {/* Your card */}
               <article className="card-box you">
@@ -162,7 +162,7 @@ export default function App() {
 
                       return (
                         <li key={stat} className={`stat-row ${isRevealed ? outcome : ""}`}>
-                          {view.turn === view.you && !view?.reveal ? (
+                          {view.phase === "CHOOSE" && view.turn === view.you && !view?.reveal ? (
                             <button
                               className="stat-button"
                               onClick={() => send({ type: "chooseStat", stat: stat as any })}
@@ -215,6 +215,15 @@ export default function App() {
                     })}
                 </ul>
               </article>
+            </section>
+          )}
+
+          {/* Next button for REVEAL phase */}
+          {view.phase === "REVEAL" && (
+            <section className="controls">
+              <button className="primary" onClick={() => send({ type: "next" })}>
+                Next
+              </button>
             </section>
           )}
 

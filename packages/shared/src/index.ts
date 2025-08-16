@@ -3,7 +3,7 @@ export type StatName = "speed" | "strength" | "size" | "intelligence";
 export const STAT_NAMES: StatName[] = ["speed", "strength", "size", "intelligence"];
 
 // Room phases
-export type RoomPhase = "WAITING" | "READY" | "CHOOSE" | "GAME_OVER";
+export type RoomPhase = "WAITING" | "READY" | "CHOOSE" | "REVEAL" | "GAME_OVER";
 
 // Public game view for a client
 export interface RoomView {
@@ -37,6 +37,7 @@ export type RoundEvent =
 export type ClientToServer =
   | { type: "join"; name: string }
   | { type: "start" }
+  | { type: "next" }
   | { type: "chooseStat"; stat: StatName }
   | { type: "leave" }
   | { type: "requestRematch" };
