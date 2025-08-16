@@ -5,6 +5,7 @@ import {
   STAT_NAMES,
   type ServerToClient,
   type ClientToServer,
+  RoundEvent,
 } from "@stat-wars/shared";
 
 const STAT_LABELS: Record<string, string> = {
@@ -44,7 +45,7 @@ export default function App() {
   const [nameSet, setNameSet] = useState<boolean>(false);
   const wsRef = useRef<WebSocket | null>(null);
   const [view, setView] = useState<RoomView | null>(null);
-  const [log, setLog] = useState<unknown[]>([]);
+  const [log, setLog] = useState<RoundEvent[]>([]);
   const [status, setStatus] = useState<"idle" | "connecting" | "open" | "closed">("idle");
 
   useEffect(() => {
@@ -203,10 +204,10 @@ export default function App() {
                         !isRevealed
                           ? ""
                           : view.reveal!.winner === view.you
-                          ? "win"
-                          : view.reveal!.winner === "tie"
-                          ? "tie"
-                          : "lose";
+                            ? "win"
+                            : view.reveal!.winner === "tie"
+                              ? "tie"
+                              : "lose";
 
                       return (
                         <li key={stat} className={`stat-row ${isRevealed ? outcome : ""}`}>
@@ -256,10 +257,10 @@ export default function App() {
                         !isRevealed
                           ? ""
                           : view.reveal!.winner !== view.you
-                          ? view.reveal!.winner === "tie"
-                            ? "tie"
-                            : "win"
-                          : "lose";
+                            ? view.reveal!.winner === "tie"
+                              ? "tie"
+                              : "win"
+                            : "lose";
 
                       return (
                         <li key={stat} className={`stat-row ${isRevealed ? outcome : ""}`}>
@@ -287,7 +288,35 @@ export default function App() {
           <section className="log-section">
             <h2 className="h2">Game Log</h2>
             <div className="log-box">
-              {JSON.stringify(log, null, 2)}
+              {log.length === 0 && <div className="muted">No events yet.</div>}
+              <ul style={{ paddingLeft: 0, margin: 0, listStyle: "none" }}>
+                {log.map((event, i) => {
+                  if (event.type === "join") {
+                    return (
+                      <li key={i}>
+                        <strong>{event.name}</strong> joined as <strong>{event.seat}</strong>
+                      </li>
+                    );
+                  }
+                  if (event.type === "round") {
+                    return (
+                      <li key={i}>
+                        <span>
+                          <strong>Round:</strong> Stat <strong>{event.stat}</strong> &rarr; Winner:{" "}
+                          <strong>
+                            {event.winner === "tie"
+                              ? "Tie"
+                              : event.winner === "P1"
+                                ? (view?.players.P1 ?? "P1")
+                                : (view?.players.P2 ?? "P2")}
+                          </strong>
+                        </span>
+                      </li>
+                    );
+                  }
+                  return null;
+                })}
+              </ul>
             </div>
           </section>
         </>
