@@ -1,3 +1,4 @@
+// apps/server/src/index.ts
 import type {
   DurableObjectNamespace,
   DurableObjectState,
@@ -13,6 +14,11 @@ import type {
   Card,
   StatName,
 } from "@stat-wars/shared";
+
+// (Type-only declaration so TS knows WebSocketPair exists in Workers)
+declare const WebSocketPair: {
+  new (): { 0: WebSocket; 1: WebSocket };
+};
 
 export interface Env {
   ROOM: DurableObjectNamespace;
@@ -30,7 +36,8 @@ export default {
       const roomCode = url.pathname.split("/").pop()!;
       const id = env.ROOM.idFromName(roomCode);
       const stub = env.ROOM.get(id);
-      return stub.fetch(request) as unknown as Response;
+      // IMPORTANT: forward the ORIGINAL Request (not just the URL string)
+      return (await stub.fetch(request)) as unknown as Response;
     }
 
     return new Response("Not found", { status: 404 });
@@ -76,7 +83,7 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-export class GameRoom {
+class GameRoom {
   private sessions = new Map<WebSocket, Seat>();
   private seatSockets: Partial<Record<Seat, WebSocket | undefined>> = {};
   private room: InternalState = {
@@ -97,16 +104,19 @@ export class GameRoom {
     }
 
     const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair) as unknown as [WebSocket, WebSocket];
+    const client = (pair as any)[0] as WebSocket;
+    const server = (pair as any)[1] as WebSocket;
+
     this.handleSession(server);
 
-    return new Response(null, { status: 101, webSocket: client as unknown as any });
+    // 101 Switching Protocols
+    return new Response(null, { status: 101, webSocket: client as any });
   }
 
   private handleSession(ws: WebSocket) {
-    ws.accept();
+    (ws as any).accept();
 
-    ws.addEventListener("message", (evt) => {
+    ws.addEventListener("message", (evt: any) => {
       const msg = this.safeParse(evt.data);
       if (!msg) {
         this.send(ws, { type: "error", code: "BAD_JSON", message: "Invalid JSON" });
@@ -120,10 +130,13 @@ export class GameRoom {
     });
 
     ws.addEventListener("error", () => {
-      try { ws.close(); } catch {}
+      try {
+        ws.close();
+      } catch {}
       this.dropSeat(ws);
     });
 
+    // Initial push
     this.send(ws, { type: "state", view: this.publicViewFor(ws), log: this.room.log });
   }
 
@@ -142,6 +155,7 @@ export class GameRoom {
         this.broadcastState();
         return;
       }
+
       case "start": {
         if (!(this.room.players.P1 && this.room.players.P2)) {
           this.send(ws, { type: "error", code: "NOT_READY", message: "Need two players to start" });
@@ -155,6 +169,7 @@ export class GameRoom {
         this.broadcastState();
         return;
       }
+
       case "chooseStat": {
         const seat = this.sessions.get(ws);
         if (!seat || this.room.turn !== seat || this.room.phase !== "CHOOSE") {
@@ -165,6 +180,7 @@ export class GameRoom {
           this.finishIfOver();
           return;
         }
+
         const p1Card = this.room.deckP1.shift()!;
         const p2Card = this.room.deckP2.shift()!;
         const s = msg.stat;
@@ -194,11 +210,13 @@ export class GameRoom {
         this.broadcastState();
         return;
       }
+
       case "leave": {
         this.dropSeat(ws);
         this.broadcastState();
         return;
       }
+
       default: {
         this.send(ws, { type: "error", code: "UNKNOWN", message: "Unknown message type" });
       }
@@ -250,9 +268,10 @@ export class GameRoom {
   }
 
   private publicViewFor(ws: WebSocket): RoomView {
-    const seat = this.sessions.get(ws) ?? "P1";
+    const seat = this.sessions.get(ws) ?? ("P1" as Seat);
     const yourDeck = seat === "P1" ? this.room.deckP1 : this.room.deckP2;
     const oppDeck = seat === "P1" ? this.room.deckP2 : this.room.deckP1;
+
     return {
       you: seat,
       players: this.room.players,
@@ -260,7 +279,9 @@ export class GameRoom {
       yourDeckCount: yourDeck.length,
       oppDeckCount: oppDeck.length,
       topCards: {
-        ...(yourDeck.length && yourDeck[0] ? { you: { revealed: true, card: { animal: yourDeck[0]!.animal } } } : {}),
+        ...(yourDeck.length && yourDeck[0]
+          ? { you: { revealed: true, card: { animal: yourDeck[0]!.animal } } }
+          : {}),
         ...(oppDeck.length ? { opponent: { revealed: false } } : {}),
       },
       phase: this.room.phase,
@@ -282,3 +303,6 @@ export class GameRoom {
     return null;
   }
 }
+
+// Keep this explicit export so wrangler can bind the DO class
+export { GameRoom };

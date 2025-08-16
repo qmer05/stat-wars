@@ -1,106 +1,117 @@
+// apps/frontend/src/App.tsx
 import { useEffect, useRef, useState } from "react";
+import {
+  STAT_NAMES,
+  type RoomView,
+  type ServerToClient,
+  type ClientToServer,
+} from "@stat-wars/shared";
 import { wsUrl } from "./config";
-import type { ServerToClient } from "@stat-wars/shared";
+
+const ROOM = "test-room"; // open two tabs with the same room to play vs yourself
 
 export default function App() {
-  const [roomCode, setRoomCode] = useState("TEST");
-  const [name, setName] = useState("Player");
-  const [log, setLog] = useState<string[]>([]);
-  // Define the shape of the view object based on expected server response
-  type ViewState = {
-    phase: string;
-    turn?: "P1" | "P2" | null;
-    [key: string]: unknown;
-  } | null;
+  const wsRef = useRef<WebSocket | null>(null);
+  const [view, setView] = useState<RoomView | null>(null);
+  const [log, setLog] = useState<unknown[]>([]);
 
-  const [view, setView] = useState<ViewState>(null);
-
-  const socketRef = useRef<WebSocket | null>(null);
-
-  const connect = () => {
-    socketRef.current?.close();
-
-    const url = wsUrl(`/ws/${roomCode}`);
+  useEffect(() => {
+    const url = wsUrl(`/ws/${ROOM}`);
+    console.log("Connecting to:", url);
     const ws = new WebSocket(url);
-    socketRef.current = ws;
+    wsRef.current = ws;
 
-    ws.onopen = () => append(`[open] ${url}`);
+    ws.addEventListener("open", () => {
+      console.log("Connected to server");
+      send({ type: "join", name: "Player 1" });
+    });
 
-    ws.onmessage = (evt) => {
-      const raw = typeof evt.data === "string" ? evt.data : "(binary)";
-      try {
-        const msg = JSON.parse(raw) as ServerToClient;
-        if (msg.type === "state") {
-          setView(msg.view);
-          append(`[state] phase=${msg.view.phase} turn=${msg.view.turn ?? "-"}`);
-        } else if (msg.type === "error") {
-          append(`[error] ${msg.code}: ${msg.message}`);
-        } else if (msg.type === "gameOver") {
-          append(`[gameOver] winner=${msg.winner}`);
-        } else {
-          append(`[msg] ${raw}`);
-        }
-      } catch {
-        append(`[msg] ${raw}`);
+    ws.addEventListener("message", (evt) => {
+      const msg: ServerToClient = JSON.parse(evt.data);
+      console.log("Received:", msg);
+
+      if (msg.type === "state") {
+        setView(msg.view);
+        setLog(msg.log);
       }
+      if (msg.type === "gameOver") {
+        alert(`Game Over! Winner: ${msg.winner}`);
+      }
+    });
+
+    ws.addEventListener("close", () => {
+      console.log("Disconnected from server");
+    });
+
+    ws.addEventListener("error", (err) => {
+      console.error("WebSocket error:", err);
+    });
+
+    return () => {
+      ws.close();
     };
+  }, []);
 
-    ws.onclose = () => append("[close]");
-    ws.onerror = () => append("[error]");
-  };
-
-  const append = (line: string) =>
-    setLog((l) => [`${new Date().toLocaleTimeString()} ${line}`, ...l]);
-
-  const sendJson = (obj: unknown) => {
-    const ws = socketRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify(obj));
-  };
-
-  const join = () => sendJson({ type: "join", name });
-  const start = () => sendJson({ type: "start" });
-
-  useEffect(() => () => socketRef.current?.close(), []);
+  function send(msg: ClientToServer) {
+    wsRef.current?.send(JSON.stringify(msg));
+  }
 
   return (
-    <main style={{ padding: 24, maxWidth: 820, margin: "0 auto" }}>
+    <div style={{ padding: "1rem" }}>
       <h1>Stat Wars</h1>
 
-      <section style={{ marginTop: 16 }}>
-        <h2>Connect</h2>
-        <input
-          value={roomCode}
-          onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-          placeholder="ROOM"
-        />
-        <button style={{ marginLeft: 8 }} onClick={connect}>Connect</button>
-      </section>
+      {view ? (
+        <>
+          <p>Phase: {view.phase}</p>
+          <p>Players: {JSON.stringify(view.players)}</p>
+          <p>Your Deck: {view.yourDeckCount} cards</p>
+          <p>Opponent Deck: {view.oppDeckCount} cards</p>
 
-      <section style={{ marginTop: 16 }}>
-        <h2>Lobby</h2>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Your name"
-        />
-        <button style={{ marginLeft: 8 }} onClick={join}>Join</button>
-        <button style={{ marginLeft: 8 }} onClick={start}>Start</button>
-      </section>
+          <div style={{ marginTop: "1rem" }}>
+            {view.phase === "READY" && (
+              <button onClick={() => send({ type: "start" })}>
+                Start Game
+              </button>
+            )}
 
-      <section style={{ marginTop: 16 }}>
-        <h3>Current View</h3>
-        <pre style={{ background: "#222", color: "#eee", padding: 12, minHeight: 120 }}>
-{JSON.stringify(view, null, 2)}
-        </pre>
-      </section>
+            {view.phase === "CHOOSE" && view.turn === view.you && (
+              <div>
+                <h3>Choose a Stat:</h3>
+                {STAT_NAMES.map((stat) => (
+                  <button
+                    key={stat}
+                    style={{ margin: "0.25rem" }}
+                    onClick={() => send({ type: "chooseStat", stat })}
+                  >
+                    {stat}
+                  </button>
+                ))}
+              </div>
+            )}
 
-      <section style={{ marginTop: 16 }}>
-        <h3>Log</h3>
-        <pre style={{ background: "#111", color: "#0f0", padding: 12, minHeight: 160 }}>
-{log.join("\n")}
-        </pre>
-      </section>
-    </main>
+            {view.phase === "GAME_OVER" && (
+              <button onClick={() => send({ type: "requestRematch" })}>
+                Rematch
+              </button>
+            )}
+          </div>
+
+          <h2 style={{ marginTop: "2rem" }}>Game Log</h2>
+          <pre
+            style={{
+              background: "#f5f5f5",
+              padding: "0.5rem",
+              borderRadius: "4px",
+              maxHeight: "200px",
+              overflow: "auto",
+            }}
+          >
+            {JSON.stringify(log, null, 2)}
+          </pre>
+        </>
+      ) : (
+        <p>Connecting...</p>
+      )}
+    </div>
   );
 }

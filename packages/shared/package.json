@@ -3,11 +3,22 @@
   "version": "0.0.1",
   "private": false,
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
   "files": ["dist"],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "clean": "rm -rf dist"
+    "clean": "rimraf dist",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1",
+    "typescript": "^5.8.3"
   }
 }

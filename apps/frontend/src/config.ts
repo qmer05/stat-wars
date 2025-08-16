@@ -1,10 +1,10 @@
-// For local dev, set your Worker base URL here or via .env.local
-// Vite env var example: VITE_API_BASE=http://127.0.0.1:8787
+// apps/frontend/src/config.ts
+
+// Use an env var in dev if you like: VITE_API_BASE=http://127.0.0.1:8787
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8787";
 
+// Helper to derive ws:// or wss:// from API_BASE
 export const wsUrl = (path: string) => {
-  const base = new URL(API_BASE);
-  base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
-  base.pathname = path.startsWith("/") ? path : `/${path}`;
-  return base.toString();
+  const wsBase = API_BASE.replace(/^http/i, "ws");
+  return `${wsBase}${path}`;
 };
