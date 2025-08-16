@@ -24,28 +24,27 @@ type RoomView = {
 import { wsUrl } from "./config";
 import "./App.css";
 
-function useRoomAndName() {
+
+function useRoom() {
   return useMemo(() => {
     const u = new URL(window.location.href);
-    const room = (u.searchParams.get("room") || "test-room").toLowerCase();
-    const stored = localStorage.getItem("sw_name");
-    const name =
-      u.searchParams.get("name") ||
-      stored ||
-      `Player-${Math.random().toString(36).slice(2, 6)}`;
-    localStorage.setItem("sw_name", name);
-    return { room, name };
+    return (u.searchParams.get("room") || "test-room").toLowerCase();
   }, []);
 }
 
+
 export default function App() {
-  const { room, name } = useRoomAndName();
+  const room = useRoom();
+  const [name, setName] = useState<string>("");
+  const [nameInput, setNameInput] = useState<string>("");
+  const [nameSet, setNameSet] = useState<boolean>(false);
   const wsRef = useRef<WebSocket | null>(null);
   const [view, setView] = useState<RoomView | null>(null);
   const [log, setLog] = useState<unknown[]>([]);
   const [status, setStatus] = useState<"idle" | "connecting" | "open" | "closed">("idle");
 
   useEffect(() => {
+    if (!nameSet) return;
     setStatus("connecting");
     const url = wsUrl(`/ws/${room}`);
     const ws = new WebSocket(url);
@@ -72,12 +71,52 @@ export default function App() {
     ws.addEventListener("error", () => setStatus("closed"));
 
     return () => ws.close();
-  }, [room, name]);
+  }, [room, name, nameSet]);
 
   function send(msg: ClientToServer) {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify(msg));
+  }
+
+  // Name input form
+  if (!nameSet) {
+    return (
+      <div className="page">
+        <header className="topbar">
+          <div className="branding">
+            <div className="logo-dot" />
+            <h1 className="title">Stat Wars</h1>
+          </div>
+        </header>
+        <main style={{ margin: "2rem auto", maxWidth: 400, textAlign: "center" }}>
+          <h2>Enter your name to join</h2>
+          <form
+            onSubmit={e => {
+              e.preventDefault();
+              if (nameInput.trim()) {
+                setName(nameInput.trim());
+                setNameSet(true);
+                localStorage.setItem("sw_name", nameInput.trim());
+              }
+            }}
+          >
+            <input
+              type="text"
+              value={nameInput}
+              onChange={e => setNameInput(e.target.value)}
+              placeholder="Your name"
+              style={{ fontSize: 20, padding: "0.5rem 1rem", borderRadius: 8, border: "1px solid #ccc", marginBottom: 16 }}
+              autoFocus
+            />
+            <br />
+            <button className="primary" type="submit" style={{ fontSize: 20, marginTop: 12 }}>
+              Join Game
+            </button>
+          </form>
+        </main>
+      </div>
+    );
   }
 
   return (
